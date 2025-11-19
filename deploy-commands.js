@@ -1,69 +1,97 @@
 import "dotenv/config";
-import fetch from "node-fetch";
-
-const CLIENT_ID = process.env.CLIENT_ID;
-const TOKEN = process.env.TOKEN;
-
-if (!CLIENT_ID || !TOKEN) {
-  console.error("CLIENT_ID and TOKEN must be set in .env");
-  process.exit(1);
-}
+import { REST, Routes } from "discord.js";
 
 const commands = [
   {
     name: "kick",
-    description: "Kick a member from the guild",
+    description: "Kick a member",
     options: [
-      { name: "user", description: "User to kick", type: 6, required: true },
-      { name: "reason", description: "Reason", type: 3, required: false }
+      {
+        name: "user",
+        description: "Who to kick",
+        type: 6,
+        required: true,
+      },
+      {
+        name: "reason",
+        description: "Reason",
+        type: 3,
+        required: false,
+      }
     ]
   },
   {
     name: "ban",
-    description: "Ban a member from the guild",
+    description: "Ban a member",
     options: [
-      { name: "user", description: "User to ban", type: 6, required: true },
-      { name: "reason", description: "Reason", type: 3, required: false }
+      {
+        name: "user",
+        type: 6,
+        description: "Who to ban",
+        required: true,
+      },
+      {
+        name: "reason",
+        description: "Reason",
+        type: 3,
+        required: false,
+      }
     ]
   },
   {
     name: "timeout",
-    description: "Timeout (mute) a member for minutes",
+    description: "Timeout a member",
     options: [
-      { name: "user", description: "User to timeout", type: 6, required: true },
-      { name: "minutes", description: "Duration in minutes", type: 4, required: false }
-    ]
-  },
-  {
-    name: "adolf",
-    description: "Talk to Adolf (fictional dictator)",
-    options: [
-      { name: "message", description: "What to say to him", type: 3, required: false }
+      {
+        name: "user",
+        type: 6,
+        description: "Who to timeout",
+        required: true,
+      },
+      {
+        name: "minutes",
+        description: "Duration in minutes",
+        type: 4,
+        required: false,
+      }
     ]
   },
   {
     name: "order",
-    description: "Adolf gives a dramatic order"
+    description: "Receive an imperial order"
   },
   {
     name: "speech",
-    description: "Adolf gives a dramatic speech"
+    description: "Hear a dictator-style speech"
+  },
+  {
+    name: "adolf",
+    description: "Talk to Adolf",
+    options: [
+      {
+        name: "message",
+        type: 3,
+        description: "Your message",
+        required: true
+      }
+    ]
   }
 ];
 
-(async () => {
-  const url = `https://discord.com/api/v10/applications/${CLIENT_ID}/commands`;
+const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bot ${TOKEN}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(commands)
-  });
+async function main() {
+  try {
+    console.log("Deploying commands globally…");
 
-  if (response.ok) console.log("GLOBAL Slash commands registered successfully!");
-  else console.error("Error:", await response.text());
-})();
+    await rest.put(
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: commands }
+    );
 
+    console.log("Slash commands deployed globally.");
+  } catch (err) {
+    console.log(err);
+  }
+}
+main();
