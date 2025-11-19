@@ -73,7 +73,7 @@ const client = new Client({
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 /* =========================
-   Slash commands (global) - note: /adolf removed per request
+   Slash commands (global) - /adolf removed as requested
    ========================= */
 const COMMANDS = [
   // moderation-like commands (manual)
@@ -244,7 +244,6 @@ Respond in-character as Adolf following the system rules strictly.
    ========================= */
 function extractPersonalFact(text) {
   const low = text.toLowerCase();
-  // small patterns — keep conservative
   const m1 = low.match(/\b(i am|i'm)\s+([A-Za-z0-9 _-]{2,40})/i);
   if (m1) return `is ${m1[2].trim()}`;
   const m2 = low.match(/\bmy name is\s+([A-Za-z0-9 _-]{2,40})/i);
@@ -259,11 +258,7 @@ function extractPersonalFact(text) {
 }
 
 /* =========================
-   Annoyance / ignore heuristics (rare triggers)
-   - spam burst (last N shortMessages from same user)
-   - repeated exact messages (recent)
-   - poke phrases
-   - nitpicking/backtalk detector
+   Annoyance / ignore heuristics (VERY RARE)
    ========================= */
 function simplePokeCheck(text) {
   const pokes = ["hello???", "you there?", "respond", "??", "???", "are you there"];
@@ -279,7 +274,7 @@ function repeatedRecentMessages(mem, lastN = 3) {
 }
 function nitpickDetector(mem) {
   if (!mem) return false;
-  const recent = mem.shortMemory.slice(-12);
+  const recent = mem.shortMemory.slice(-20);
   let count = 0;
   const patterns = ["you're wrong", "no you", "but", "actually", "that's wrong", "stop acting", "not like this", "fix your"];
   for (const s of recent) {
@@ -288,7 +283,7 @@ function nitpickDetector(mem) {
     const text = s.slice(idx + 2).toLowerCase();
     if (patterns.some(p => text.includes(p))) count++;
   }
-  return count >= 3;
+  return count >= 4;
 }
 
 /* =========================
@@ -297,7 +292,17 @@ function nitpickDetector(mem) {
    - check Supreme Leader role
    - check Commander role or Admin
    ========================= */
-async function isGuildOwner(member) { return member.id === member.guild.ownerId; }
+async function isGuildOwnerByFetch(guild, userId) {
+  // Robust owner detection: compare with guild.ownerId if present, else fetch owner
+  try {
+    if (guild.ownerId && guild.ownerId === userId) return true;
+    const owner = await guild.fetchOwner();
+    if (owner && owner.id === userId) return true;
+  } catch (e) {
+    console.warn("fetchOwner failed:", e);
+  }
+  return false;
+}
 function hasAdmin(member) { return member.permissions?.has(PermissionFlagsBits.Administrator); }
 async function hasSupremeRole(member, cfg) { if (!cfg?.supremeRoleId) return false; return member.roles.cache.has(cfg.supremeRoleId); }
 async function hasCommanderRole(member, cfg) { if (!cfg?.commanderRoleId) return false; return member.roles.cache.has(cfg.commanderRoleId); }
@@ -345,8 +350,8 @@ client.on("interactionCreate", async (interaction) => {
 
     const cfg = guild ? await getGuildConfig(guild.id) : null;
 
-    // helper perms: owner, supreme, commander/admin
-    const owner = invoker.id === (guild ? guild.ownerId : null); // owner ALWAYS supreme
+    // owner robust check using fetch
+    const owner = guild ? await isGuildOwnerByFetch(guild, invoker.id) : false;
     const isAdmin = hasAdmin(invoker);
     const isSupreme = guild ? (await hasSupremeRole(invoker, cfg)) : false;
     const isCommander = guild ? (await hasCommanderRole(invoker, cfg)) : false;
@@ -502,21 +507,19 @@ client.on("messageCreate", async (msg) => {
 
     // persistent ignore check
     if (await isIgnored(msg.author.id)) {
-      // do not ignore supremeroles or owner
+      // robust owner detection to prevent accidental ignore of owner
       const authorMember = await guild.members.fetch(msg.author.id).catch(()=>null);
-      if (authorMember) {
-        const isOwner = authorMember.id === guild.ownerId;
-        const isSup = cfg.supremeRoleId && authorMember.roles.cache.has(cfg.supremeRoleId);
-        if (!isOwner && !isSup) return; // silently ignore
-        // else continue if owner or supreme
-      } else return; // if cannot fetch, be conservative and ignore
+      const authorIsOwner = authorMember ? (authorMember.id === guild.ownerId || await isGuildOwnerByFetch(guild, authorMember.id)) : false;
+      const isSup = authorMember && cfg.supremeRoleId && authorMember.roles.cache.has(cfg.supremeRoleId);
+      if (!authorIsOwner && !isSup) return; // silently ignore
+      // else continue if owner or supreme
     }
 
     // store short memory
     await (async () => {
       const mem = await ensureUserMemory(msg.author.id);
       mem.shortMemory.push(`${msg.author.username}: ${msg.content}`);
-      if (mem.shortMemory.length > 16) mem.shortMemory.shift();
+      if (mem.shortMemory.length > 32) mem.shortMemory.shift();
       await mem.save();
     })();
 
@@ -542,41 +545,65 @@ client.on("messageCreate", async (msg) => {
     // determine role flags for author (for ignore override)
     const authorMember = await guild.members.fetch(msg.author.id).catch(()=>null);
     const cfgCurrent = await getGuildConfig(guild.id);
-    const isAuthorOwner = authorMember && authorMember.id === guild.ownerId;
+    // robust owner detection for this author: use fetch fallback to guarantee owner detection
+    const isAuthorOwner = authorMember ? (authorMember.id === guild.ownerId || await isGuildOwnerByFetch(guild, authorMember.id)) : false;
     const isAuthorSupreme = authorMember && cfgCurrent.supremeRoleId && authorMember.roles.cache.has(cfgCurrent.supremeRoleId);
     const isAuthorCommander = authorMember && cfgCurrent.commanderRoleId && authorMember.roles.cache.has(cfgCurrent.commanderRoleId);
     const isAuthorAdmin = authorMember && hasAdmin(authorMember);
 
     /* -------------------------
-       Annoyance detection -> declare ignore (rare)
+       ANNOUNCE IGNORE TRIGGERS (VERY RARE)
+       - require substantial shortMemory history first
+       - strong thresholds to avoid false positives
        ------------------------- */
     const mem = await ensureUserMemory(msg.author.id);
-    // spam burst heuristic: last 6 shortMemory entries belong to this username
-    const lastShortNames = mem.shortMemory.slice(-6).map(s => { const idx = s.indexOf(": "); return idx >= 0 ? s.slice(0, idx) : s; });
-    const spamBurst = lastShortNames.length >= 5 && lastShortNames.every(n => n === msg.author.username);
-    const repeated = repeatedRecentMessages(mem, 2);
-    const poke = simplePokeCheck(msg.content);
-    const nitpick = nitpickDetector(mem);
+    // only consider ignore for users with enough recent history
+    if (!isAuthorOwner && !isAuthorSupreme && mem.shortMemory.length >= 12) {
+      // compute heuristics
+      const lastShortNames = mem.shortMemory.slice(-20).map(s => { const idx = s.indexOf(": "); return idx >= 0 ? s.slice(0, idx) : s; });
+      const spamBurst = lastShortNames.length >= 8 && lastShortNames.slice(-8).every(n => n === msg.author.username);
+      const repeated = repeatedRecentMessages(mem, 3) && mem.shortMemory.length >= 18;
+      const poke = simplePokeCheck(msg.content);
+      const nitpick = nitpickDetector(mem); // requires multiple negatives in history
 
-    if ((spamBurst || repeated || poke || nitpick) && !isAuthorSupreme && !isAuthorOwner) {
-      // set persistent ignore for 15 minutes
-      await setIgnore(msg.author.id, 15);
-      const lines = [
-        "Pathetic. I will ignore lowly citizens like you. I refuse to waste my time on insects.",
-        "Enough. I will ignore you now. A tyrant of the Verse does not waste his breath on bottom-rank peasants.",
-        "Silence. I hereby place you under ignore. My time is far too valuable for trivial creatures like you.",
-        "Begone. I will ignore you — the Verse has no space for your constant whining."
-      ];
-      const announce = lines[Math.floor(Math.random()*lines.length)];
-      await msg.reply(announce);
-      return;
+      // stronger conditions: require history + strong signal
+      const strongSpam = spamBurst && mem.shortMemory.length >= 20;
+      const strongRepeat = repeated;
+      const strongNitpick = nitpick && mem.shortMemory.length >= 22;
+
+      // repeated poke count in last 12 messages
+      const pokeCount = mem.shortMemory.slice(-12).filter(s => {
+        const idx = s.indexOf(": ");
+        const t = idx >= 0 ? s.slice(idx + 2) : s;
+        return ["hello???","you there?","respond","??","???","are you there"].some(p => t.toLowerCase().includes(p));
+      }).length;
+      const strongPoke = pokeCount >= 6; // very high bar
+
+      const ignoreCandidate = strongSpam || strongRepeat || strongNitpick || strongPoke;
+
+      // Even if ignoreCandidate true, we apply randomness very small and require more checks
+      if (ignoreCandidate && Math.random() < 0.10) { // 10% chance
+        // final safety: ensure not in the first 20 Adolf interactions ever
+        const totalInteractions = mem.shortMemory.length;
+        if (totalInteractions >= 20) {
+          await setIgnore(msg.author.id, 15);
+          const lines = [
+            "Pathetic. I will ignore lowly citizens like you. I refuse to waste my time on insects.",
+            "Enough. I will ignore you now. A tyrant of the Verse does not waste his breath on bottom-rank peasants.",
+            "Silence. I hereby place you under ignore. My time is far too valuable for trivial creatures like you.",
+            "Begone. I will ignore you — the Verse has no space for your constant whining."
+          ];
+          const announce = lines[Math.floor(Math.random()*lines.length)];
+          await msg.reply(announce);
+          return;
+        }
+      }
     }
 
     /* -------------------------
        Insult handling
        ------------------------- */
     if (classification.is_insult && classification.targets.includes("bot")) {
-      // If author is a supreme leader or owner, still respond normally
       const reply = await aiReplyInCharacter({ content: msg.content, authorId: msg.author.id, superiorUserId: mentionSuperiorId });
       return msg.reply(reply);
     }
@@ -622,10 +649,10 @@ client.on("messageCreate", async (msg) => {
     if (msg.content.toLowerCase().includes("adolf")) shouldReply = true;
 
     if (shouldReply) {
-      // If author is owner -> treat as supreme; if author has supreme role -> supreme
+      // robustly decide if author should be treated as supreme for phrasing
       let superiorForReply = null;
       if (authorMember) {
-        if (authorMember.id === guild.ownerId) superiorForReply = authorMember.id;
+        if (await isGuildOwnerByFetch(guild, authorMember.id)) superiorForReply = authorMember.id; // owner ALWAYS supreme
         else if (cfgCurrent.supremeRoleId && authorMember.roles.cache.has(cfgCurrent.supremeRoleId)) superiorForReply = authorMember.id;
       }
       const reply = await aiReplyInCharacter({ content: msg.content, authorId: msg.author.id, superiorUserId: superiorForReply });
@@ -659,5 +686,6 @@ function rolePosition(member) {
     process.exit(1);
   }
 })();
+
 
 
