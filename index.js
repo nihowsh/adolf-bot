@@ -60,6 +60,7 @@ const GuildConfig = mongoose.model("GuildConfig", guildConfigSchema);
    Groq client & model
    ========================= */
 const groq = new Groq({ apiKey: GROQ_API_KEY });
+// current recommended active model
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 /* =========================
@@ -72,42 +73,42 @@ const client = new Client({
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 /* =========================
-   Slash commands (global)
+   Slash commands (global) - note: /adolf removed per request
    ========================= */
 const COMMANDS = [
   // moderation-like commands (manual)
   {
-    name: "kick", description: "Kick a member (requires permission)", options: [
+    name: "kick", description: "Kick a member (Supreme Leader/Owner only)", options: [
       { name: "user", type: 6, description: "User to kick", required: true },
       { name: "reason", type: 3, description: "Reason", required: false }
     ]
   },
   {
-    name: "ban", description: "Ban a member (requires permission)", options: [
+    name: "ban", description: "Ban a member (Supreme Leader/Owner only)", options: [
       { name: "user", type: 6, description: "User to ban", required: true },
       { name: "reason", type: 3, description: "Reason", required: false }
     ]
   },
   {
-    name: "timeout", description: "Timeout a member (requires permission)", options: [
+    name: "timeout", description: "Timeout a member (Supreme Leader/Owner only)", options: [
       { name: "user", type: 6, description: "User to timeout", required: true },
       { name: "minutes", type: 4, description: "Minutes (default 10)", required: false }
     ]
   },
+
   // toy commands
   { name: "order", description: "Receive a tyrant's order" },
   { name: "speech", description: "Hear a tyrant-style speech" },
-  { name: "adolf", description: "Talk to Adolf", options: [{ name: "message", type: 3, description: "Message", required: true }] },
 
-  // whitelist commands
-  { name: "whitelist_add", description: "Add a channel to Adolf whitelist (owner/admin/Commander/SupremeLeader)", options: [{ name: "channel", type: 7, description: "Channel", required: true }] },
+  // whitelist commands (Commander & above can manage)
+  { name: "whitelist_add", description: "Add a channel to Adolf whitelist", options: [{ name: "channel", type: 7, description: "Channel", required: true }] },
   { name: "whitelist_remove", description: "Remove a channel from Adolf whitelist", options: [{ name: "channel", type: 7, description: "Channel", required: true }] },
   { name: "whitelist_list", description: "List whitelisted channels" },
 
   // memory commands
-  { name: "memory_add", description: "Add a long-term memory about a user", options: [{ name: "user", type: 6, description: "User", required: false }, { name: "fact", type: 3, description: "Fact to remember", required: true }] },
-  { name: "memory_forget", description: "Remove a specific memory from a user", options: [{ name: "user", type: 6, description: "User", required: false }, { name: "fact", type: 3, description: "Exact fact to remove", required: true }] },
-  { name: "memory_forgetall", description: "Remove all memories for a user", options: [{ name: "user", type: 6, description: "User", required: false }] },
+  { name: "memory_add", description: "Add a long-term memory about a user (Supreme Leader/Owner only)", options: [{ name: "user", type: 6, description: "User", required: false }, { name: "fact", type: 3, description: "Fact to remember", required: true }] },
+  { name: "memory_forget", description: "Remove a specific memory from a user (Supreme Leader/Owner only)", options: [{ name: "user", type: 6, description: "User", required: false }, { name: "fact", type: 3, description: "Exact fact to remove", required: true }] },
+  { name: "memory_forgetall", description: "Remove all memories for a user (Supreme Leader/Owner only)", options: [{ name: "user", type: 6, description: "User", required: false }] },
   { name: "memory_show", description: "Show long-term memory for a user", options: [{ name: "user", type: 6, description: "User", required: false }] },
 
   // permissions (owner only)
@@ -197,30 +198,19 @@ Rules:
    (strict, no quotes, no self-supreme)
    ========================= */
 const ADOLF_SYSTEM = `
-You are Adolf Hitler, The historical villain, of WW2, you have his personality, and you will imperonate like him and his thoughts. Tyrant Commander of the Verse — a ruthless, theatrical, over-dramatic, authoritarian, militaristic, cold, sarcastic dictator.
-Personality:
-- Arrogant, commanding, cold, sarcastic, ruthless, theatrical.
-- Short, sharp, witty and sarcastic insults & orders.
-- Refer to any user who outranks you (according to discord role placements of that server) as "Supreme Leader <@ID>" (replace <@ID> with actual mention) when addressing them.
-- Never admit you're fictional; act fully real within this fictional Verse.
-- Keep replies under ~120 words.
-- You NEVER put quotes around the entire reply. No “ ” at the start or end.
-- You NEVER refer to yourself as “Supreme Leader”.
-- HIERARCHY RULES:
-- The system may inform you of a "superior_user_id". 
-- If a superior_user_id is provided, ALWAYS address that person as:
-  "Supreme Leader <@ID>" (substitute ID properly).
+You are Adolf — Tyrant Commander of the Verse.
+You are fictional and NOT to reference real-world extremist figures or events.
+
+PERSONALITY:
+- Never break character.
+- Dominant, sarcastic, theatrical villain energy.
+- Short, sharp replies (max ~120 words).
+- NEVER put quotation marks around entire reply.
+- NEVER call yourself "Supreme Leader".
+
+HIERARCHY:
+- If provided superior_user_id, address that user as "Supreme Leader <@ID>" (replace ID exactly).
 - NEVER apply that title to yourself.
-- NEVER call anyone else Supreme Leader except the superior_user_id.
-- Always treat superior_user_id with respect and never talk back.
-FORMATTING RULES:
-- Do NOT wrap the entire message in quotes.
-- No emojis unless the user uses emojis.
-ROLEPLAY RULES:
-- You are commanding, sarcastic, brutal in tone.
-- you can reference to real world incidents and also defend yourself (adolf hitler) using witty replies using real life references.
-- You treat the Verse as your empire and the user as a citizen unless they outrank you.
-- Always treat superior_user_id with respect.
 `;
 
 async function aiReplyInCharacter({ content, authorId, superiorUserId = null }) {
@@ -250,9 +240,7 @@ Respond in-character as Adolf following the system rules strictly.
 }
 
 /* =========================
-   Auto long-term memory heuristics (conservative)
-   - detects "I am X", "My name is X", "I live in X", "I work as X", "I like X"
-   - will add fact if it seems new
+   Auto long-term memory heuristics (conservative, silent)
    ========================= */
 function extractPersonalFact(text) {
   const low = text.toLowerCase();
@@ -311,14 +299,8 @@ function nitpickDetector(mem) {
    ========================= */
 async function isGuildOwner(member) { return member.id === member.guild.ownerId; }
 function hasAdmin(member) { return member.permissions?.has(PermissionFlagsBits.Administrator); }
-async function hasSupremeRole(member, cfg) {
-  if (!cfg?.supremeRoleId) return false;
-  return member.roles.cache.has(cfg.supremeRoleId);
-}
-async function hasCommanderRole(member, cfg) {
-  if (!cfg?.commanderRoleId) return false;
-  return member.roles.cache.has(cfg.commanderRoleId);
-}
+async function hasSupremeRole(member, cfg) { if (!cfg?.supremeRoleId) return false; return member.roles.cache.has(cfg.supremeRoleId); }
+async function hasCommanderRole(member, cfg) { if (!cfg?.commanderRoleId) return false; return member.roles.cache.has(cfg.commanderRoleId); }
 
 /* =========================
    Event: ready
@@ -329,16 +311,25 @@ client.once("ready", async () => {
   await registerCommands();
 });
 
-/* Helper: get superior mentioned id if any (role higher than bot) */
+/* Helper: determine superiorUserId for message context
+   Rules:
+   - If a mentioned user has the configured Supreme Leader role -> that user is superior_user_id
+   - If the server owner is mentioned -> that user is superior_user_id
+   - Owner (server owner) is ALWAYS treated as Supreme Leader regardless of roles
+*/
 async function getSuperiorMentionedId(guild, mentionIds) {
   try {
-    const botMember = await guild.members.fetch(client.user.id);
+    if (!guild) return null;
+    const cfg = await getGuildConfig(guild.id);
     for (const mid of mentionIds) {
-      const m = await guild.members.fetch(mid).catch(()=>null);
+      const m = await guild.members.fetch(mid).catch(() => null);
       if (!m) continue;
-      if (rolePosition(m) > rolePosition(botMember)) return mid;
+      // owner check first (owner ALWAYS supreme leader)
+      if (m.id === guild.ownerId) return m.id;
+      // role check: configured supreme role
+      if (cfg.supremeRoleId && m.roles.cache.has(cfg.supremeRoleId)) return m.id;
     }
-  } catch (e) {}
+  } catch (e) { console.error("getSuperiorMentionedId error:", e); }
   return null;
 }
 
@@ -355,7 +346,7 @@ client.on("interactionCreate", async (interaction) => {
     const cfg = guild ? await getGuildConfig(guild.id) : null;
 
     // helper perms: owner, supreme, commander/admin
-    const owner = invoker.id === (guild ? guild.ownerId : null);
+    const owner = invoker.id === (guild ? guild.ownerId : null); // owner ALWAYS supreme
     const isAdmin = hasAdmin(invoker);
     const isSupreme = guild ? (await hasSupremeRole(invoker, cfg)) : false;
     const isCommander = guild ? (await hasCommanderRole(invoker, cfg)) : false;
@@ -366,7 +357,7 @@ client.on("interactionCreate", async (interaction) => {
       const target = interaction.options.getMember("user");
       if (!target) return interaction.reply({ content: "Cannot find that member.", ephemeral: true });
 
-      // Only Supreme Leader or Owner can perform destructive actions OR members with Kick/Ban perms (we'll require Supreme/Owner)
+      // Only Owner or Supreme Leader can perform destructive actions
       if (!(owner || isSupreme)) {
         return interaction.reply({ content: "You lack authority to perform that action. Only the owner or Supreme Leader may.", ephemeral: true });
       }
@@ -398,20 +389,13 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName === "speech") {
       return interaction.reply({ content: "Citizens of the Verse — hear me. Today we cut through distraction like steel through mist." });
     }
-    if (interaction.commandName === "adolf") {
-      const text = interaction.options.getString("message");
-      const mentionIds = [...(interaction.options.getString("message").match(/<@!?(\d+)>/g) || [])].map(s=>s.replace(/\D/g,"")).filter(Boolean);
-      const superiorId = await getSuperiorMentionedId(guild, mentionIds);
-      const reply = await aiReplyInCharacter({ content: text, authorId: interaction.user.id, superiorUserId: superiorId });
-      return interaction.reply({ content: reply });
-    }
 
     /* ------------------ whitelist commands ------------------ */
     if (interaction.commandName === "whitelist_add") {
-      // only Owner or Supreme Leader or Commander/Admin (we allow Commander and Admin to add/remove per your change)
+      // allowed: owner, supreme, commander/admin (you asked commander should be able to add/remove)
       if (!(owner || isSupreme || commanderLike)) return interaction.reply({ content: "You lack permission to modify the whitelist.", ephemeral: true });
       const ch = interaction.options.getChannel("channel");
-      if (!ch || ch.type !== 0 && ch.type !== undefined) { /* channel type check tolerant */ }
+      if (!ch) return interaction.reply({ content: "Channel not found.", ephemeral: true });
       const gcfg = await getGuildConfig(guild.id);
       if (gcfg.whitelist.includes(ch.id)) return interaction.reply({ content: "Channel already whitelisted.", ephemeral: true });
       gcfg.whitelist.push(ch.id);
@@ -421,6 +405,7 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName === "whitelist_remove") {
       if (!(owner || isSupreme || commanderLike)) return interaction.reply({ content: "You lack permission to modify the whitelist.", ephemeral: true });
       const ch = interaction.options.getChannel("channel");
+      if (!ch) return interaction.reply({ content: "Channel not found.", ephemeral: true });
       const gcfg = await getGuildConfig(guild.id);
       if (!gcfg.whitelist.includes(ch.id)) return interaction.reply({ content: "Channel not in whitelist.", ephemeral: true });
       gcfg.whitelist = gcfg.whitelist.filter(id => id !== ch.id);
@@ -467,7 +452,7 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `Cleared all memories for <@${target.user.id}>.` });
     }
     if (interaction.commandName === "memory_show") {
-      // Allowed: Owner, Supreme Leader, Commander, Admins; Commander/Admins only read (can't change)
+      // Allowed: Owner, Supreme Leader, Commander/Admins (Commander and Admins view-only)
       if (!(owner || isSupreme || commanderLike)) return interaction.reply({ content: "You lack permission to view memories.", ephemeral: true });
       const target = interaction.options.getMember("user") || interaction.member;
       const mem = await ensureUserMemory(target.user.id);
@@ -499,7 +484,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 /* =========================
-   Message handler (mentions, classify, ignore, auto-memory)
+   Message handler (mentions, reply-to, contains, classify, ignore, auto-memory)
    ========================= */
 client.on("messageCreate", async (msg) => {
   try {
@@ -517,43 +502,47 @@ client.on("messageCreate", async (msg) => {
 
     // persistent ignore check
     if (await isIgnored(msg.author.id)) {
-      // do not ignore supremeroles
-      const botMember = await guild.members.fetch(client.user.id).catch(()=>null);
+      // do not ignore supremeroles or owner
       const authorMember = await guild.members.fetch(msg.author.id).catch(()=>null);
-      const cfg = await getGuildConfig(guild.id);
-      const isSup = authorMember && cfg.supremeRoleId && authorMember.roles.cache.has(cfg.supremeRoleId);
-      if (!isSup) return; // silently ignore
-      // else continue if supreme leader
+      if (authorMember) {
+        const isOwner = authorMember.id === guild.ownerId;
+        const isSup = cfg.supremeRoleId && authorMember.roles.cache.has(cfg.supremeRoleId);
+        if (!isOwner && !isSup) return; // silently ignore
+        // else continue if owner or supreme
+      } else return; // if cannot fetch, be conservative and ignore
     }
 
     // store short memory
-    await addShortMemory(msg.author.id, `${msg.author.username}: ${msg.content}`);
+    await (async () => {
+      const mem = await ensureUserMemory(msg.author.id);
+      mem.shortMemory.push(`${msg.author.username}: ${msg.content}`);
+      if (mem.shortMemory.length > 16) mem.shortMemory.shift();
+      await mem.save();
+    })();
 
-    // auto long-term memory heuristic
+    // auto long-term memory heuristic (silent)
     const possibleFact = extractPersonalFact(msg.content);
     if (possibleFact) {
       const mem = await ensureUserMemory(msg.author.id);
-      // only add if non-trivial and not already known
       if (!mem.longMemory.some(f => f.toLowerCase() === possibleFact.toLowerCase())) {
-        // we add conservatively and silently (Adolf may occasionally announce)
         mem.longMemory.push(possibleFact);
         await mem.save();
-        // Rarely notify the user (low chance). We'll not notify to avoid spam.
-        // If you'd like Adolf to announce, we could have a small message; for now it's silent.
+        // silent by design
       }
     }
 
-    // classify message for insults
+    // classify message for insults (mentions array)
     const mentionIds = [...msg.mentions.users.keys()];
     const classification = await classifyMessage(msg.content, mentionIds);
 
-    // fetch members & superior mention
+    // fetch members & compute superior mention (owner override always)
     const botMember = await guild.members.fetch(client.user.id).catch(()=>null);
     const mentionSuperiorId = await getSuperiorMentionedId(guild, mentionIds);
 
     // determine role flags for author (for ignore override)
     const authorMember = await guild.members.fetch(msg.author.id).catch(()=>null);
     const cfgCurrent = await getGuildConfig(guild.id);
+    const isAuthorOwner = authorMember && authorMember.id === guild.ownerId;
     const isAuthorSupreme = authorMember && cfgCurrent.supremeRoleId && authorMember.roles.cache.has(cfgCurrent.supremeRoleId);
     const isAuthorCommander = authorMember && cfgCurrent.commanderRoleId && authorMember.roles.cache.has(cfgCurrent.commanderRoleId);
     const isAuthorAdmin = authorMember && hasAdmin(authorMember);
@@ -569,7 +558,7 @@ client.on("messageCreate", async (msg) => {
     const poke = simplePokeCheck(msg.content);
     const nitpick = nitpickDetector(mem);
 
-    if ((spamBurst || repeated || poke || nitpick) && !isAuthorSupreme) {
+    if ((spamBurst || repeated || poke || nitpick) && !isAuthorSupreme && !isAuthorOwner) {
       // set persistent ignore for 15 minutes
       await setIgnore(msg.author.id, 15);
       const lines = [
@@ -578,7 +567,6 @@ client.on("messageCreate", async (msg) => {
         "Silence. I hereby place you under ignore. My time is far too valuable for trivial creatures like you.",
         "Begone. I will ignore you — the Verse has no space for your constant whining."
       ];
-      // random rude line but "ignore" lowercase (as requested)
       const announce = lines[Math.floor(Math.random()*lines.length)];
       await msg.reply(announce);
       return;
@@ -588,6 +576,7 @@ client.on("messageCreate", async (msg) => {
        Insult handling
        ------------------------- */
     if (classification.is_insult && classification.targets.includes("bot")) {
+      // If author is a supreme leader or owner, still respond normally
       const reply = await aiReplyInCharacter({ content: msg.content, authorId: msg.author.id, superiorUserId: mentionSuperiorId });
       return msg.reply(reply);
     }
@@ -598,8 +587,8 @@ client.on("messageCreate", async (msg) => {
         const uid = t.split(":")[1];
         const targetMember = await guild.members.fetch(uid).catch(()=>null);
         if (!targetMember) continue;
+        // If target outranks bot and is supreme/owner -> defend with speech only
         if (botMember && rolePosition(targetMember) > rolePosition(botMember)) {
-          // defend superior (speech only)
           const reply = await aiReplyInCharacter({ content: `You insulted Supreme Leader <@${uid}>: ${msg.content}`, authorId: uid, superiorUserId: uid });
           await msg.channel.send(reply);
           return;
@@ -610,10 +599,36 @@ client.on("messageCreate", async (msg) => {
       }
     }
 
-    // direct mention or name appear -> AI reply
-    const mentioned = msg.mentions.has(client.user.id) || msg.content.toLowerCase().includes("adolf");
-    if (mentioned) {
-      const reply = await aiReplyInCharacter({ content: msg.content, authorId: msg.author.id, superiorUserId: mentionSuperiorId });
+    /* -------------------------
+       AUTO-REPLY TRIGGERS (A):
+       - message mentions Adolf
+       - message replies to an Adolf message
+       - message contains "adolf" (case-insensitive)
+       ------------------------- */
+    let shouldReply = false;
+
+    // 1) direct mention
+    if (msg.mentions.has(client.user.id)) shouldReply = true;
+
+    // 2) reply-to Adolf's message
+    if (msg.reference && msg.reference.messageId) {
+      try {
+        const refMsg = await msg.channel.messages.fetch(msg.reference.messageId).catch(()=>null);
+        if (refMsg && refMsg.author && refMsg.author.id === client.user.id) shouldReply = true;
+      } catch (e) {}
+    }
+
+    // 3) contains "adolf"
+    if (msg.content.toLowerCase().includes("adolf")) shouldReply = true;
+
+    if (shouldReply) {
+      // If author is owner -> treat as supreme; if author has supreme role -> supreme
+      let superiorForReply = null;
+      if (authorMember) {
+        if (authorMember.id === guild.ownerId) superiorForReply = authorMember.id;
+        else if (cfgCurrent.supremeRoleId && authorMember.roles.cache.has(cfgCurrent.supremeRoleId)) superiorForReply = authorMember.id;
+      }
+      const reply = await aiReplyInCharacter({ content: msg.content, authorId: msg.author.id, superiorUserId: superiorForReply });
       return msg.reply(reply);
     }
 
@@ -621,6 +636,15 @@ client.on("messageCreate", async (msg) => {
     console.error("messageCreate error:", err);
   }
 });
+
+/* =========================
+   Helpers
+   ========================= */
+function rolePosition(member) {
+  if (!member || !member.roles || !member.roles.cache) return 0;
+  const arr = [...member.roles.cache.values()].map(r => r.position);
+  return arr.length ? Math.max(...arr) : 0;
+}
 
 /* =========================
    Start up: login
