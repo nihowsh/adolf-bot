@@ -10,15 +10,14 @@ if (!TOKEN || !CLIENT_ID) {
 }
 
 /* ============================================
-   GLOBAL Slash Commands for the whole bot
+   GLOBAL Slash Commands for all servers
    ============================================ */
 const COMMANDS = [
-  // moderation
   {
     name: "kick",
     description: "Kick a member",
     options: [
-      { name: "user", type: 6, description: "Member to kick", required: true },
+      { name: "user", type: 6, description: "User to kick", required: true },
       { name: "reason", type: 3, description: "Reason", required: false }
     ]
   },
@@ -26,7 +25,7 @@ const COMMANDS = [
     name: "ban",
     description: "Ban a member",
     options: [
-      { name: "user", type: 6, description: "Member to ban", required: true },
+      { name: "user", type: 6, description: "User to ban", required: true },
       { name: "reason", type: 3, description: "Reason", required: false }
     ]
   },
@@ -34,16 +33,14 @@ const COMMANDS = [
     name: "timeout",
     description: "Timeout a member",
     options: [
-      { name: "user", type: 6, description: "Member to timeout", required: true },
-      { name: "minutes", type: 4, description: "Minutes (default 10)", required: false }
+      { name: "user", type: 6, description: "User to timeout", required: true },
+      { name: "minutes", type: 4, description: "Minutes", required: false }
     ]
   },
 
-  // fun
   { name: "order", description: "Receive a tyrant-style order" },
-  { name: "speech", description: "Hear a short tyrant-style speech" },
+  { name: "speech", description: "Hear a tyrant-style speech" },
 
-  // whitelist
   {
     name: "whitelist_add",
     description: "Add a channel to whitelist",
@@ -60,13 +57,12 @@ const COMMANDS = [
   },
   { name: "whitelist_list", description: "List all whitelisted channels" },
 
-  // memory
   {
     name: "memory_add",
     description: "Add long-term memory",
     options: [
       { name: "user", type: 6, description: "User", required: false },
-      { name: "fact", type: 3, description: "Fact to save", required: true }
+      { name: "fact", type: 3, description: "Fact", required: true }
     ]
   },
   {
@@ -79,20 +75,19 @@ const COMMANDS = [
   },
   {
     name: "memory_forgetall",
-    description: "Delete ALL memories for a user",
+    description: "Clear all memories for a user",
     options: [
       { name: "user", type: 6, description: "User", required: false }
     ]
   },
   {
     name: "memory_show",
-    description: "Show long-term memories for a user",
+    description: "Show long-term memories of a user",
     options: [
       { name: "user", type: 6, description: "User", required: false }
     ]
   },
 
-  // permissions
   {
     name: "permissions_setroles",
     description: "Set Commander / Supreme Leader roles",
@@ -101,29 +96,30 @@ const COMMANDS = [
       { name: "supreme", type: 8, description: "Supreme role", required: false }
     ]
   },
-  { name: "permissions_show", description: "Show configured roles" }
+  {
+    name: "permissions_show",
+    description: "Show configured permission roles"
+  }
 ];
 
-/* ============================================
-   Deploy global commands
-   ============================================ */
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
   try {
-    console.log("🌍 Deploying GLOBAL slash commands...");
+    console.log("🌍 Deploying GLOBAL commands...");
 
     await rest.put(
       Routes.applicationCommands(CLIENT_ID),
       { body: COMMANDS }
     );
 
-    console.log("✅ Global slash commands deployed successfully!");
-    console.log("⏳ Global commands may take 30–60 minutes to appear everywhere.");
+    console.log("✅ Global commands deployed successfully!");
+    console.log("⏳ They will appear in 1–30 minutes (Discord cache).");
   } catch (err) {
-    console.error("❌ Deployment error:");
+    console.error("❌ Error deploying commands:");
     console.error(err);
   }
 })();
+
 
 
